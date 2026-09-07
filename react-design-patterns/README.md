@@ -51,13 +51,15 @@
 
 📖 Deep dive → [Day 6: Application Architecture Patterns](day-06-application-architecture-patterns/README.md)
 
-### Day 7: Server State & Data Fetching Patterns
+### Day 7: Server State & Data Fetching Patterns ✅
 
-- [ ] Server State Pattern
-- [ ] Effect Synchronization Pattern
-- [ ] Optimistic UI Pattern
-- [ ] Pagination Pattern
-- [ ] Infinite Scroll Pattern
+- [x] Server State Pattern
+- [x] Effect Synchronization Pattern
+- [x] Optimistic UI Pattern
+- [x] Pagination Pattern
+- [x] Infinite Scroll Pattern
+
+📖 Deep dive → [Day 7: Server State & Data Fetching Patterns](day-07-server-state-and-data-fetching-patterns/README.md)
 
 ### Day 8: Performance Patterns
 

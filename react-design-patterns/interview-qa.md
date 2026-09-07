@@ -532,4 +532,75 @@ Key points an interviewer looks for: `OrderTableView` takes `orders`/`loading` a
 
 ---
 
-<!-- Add Day 7 questions below as you complete Day 7 -->
+## Day 7 — Server State & Data Fetching Patterns
+
+### Q1. What is "server state," and why does treating it like local UI state cause bugs?
+
+**A.** Server state is data that lives on a backend and is only mirrored into the frontend — orders, products, users — as opposed to local state that only ever exists in the browser (`isModalOpen`, `selectedTab`). Treating it like local state breaks down because server state can change without any action in the current app instance (another admin cancels an order), it's stale the instant it's fetched, and the same data is often needed by multiple unrelated components with no built-in way to keep them in sync — an `OrderCountBadge` and an `OrderTable` each fetching `/orders` independently have no idea when the other one's data changes.
+
+### Q2. What specific problems do React Query/SWR solve that a hand-rolled `useFetch` (Day 3) doesn't?
+
+**A.** Caching and deduplication (two components requesting the same `queryKey` share one cached result instead of firing two network calls), invalidation (`invalidateQueries` tells every consumer of a key to refetch after a mutation, without manually passing callbacks between unrelated components), and race-condition handling for rapidly changing inputs. A hand-rolled `useFetch` gives you loading/error state and reuse of the *logic*, but not a shared cache across separate hook calls — Day 3's Q2 already noted each call to a custom hook gets independent state, which is precisely the gap a server-state library closes.
+
+### Q3. What is the Effect Synchronization Pattern, and how is "synchronization" different from the "run on mount" mental model of `useEffect`?
+
+**A.** The "run on mount" framing leads to writing `useEffect(() => {...}, [])` and forgetting that the effect's body reads a prop or state value that can change later. The synchronization framing says: an effect should keep some external system (fetched data, `document.title`, a subscription) in sync with the reactive values it reads, which means every one of those values belongs in the dependency array — if `productId` is used inside the effect, `[productId]` must be the dependency list, so the effect re-runs and re-synchronizes whenever it changes.
+
+### Q4. Coding question: this component shows stale data when `productId` changes without unmounting. Fix the race condition.
+
+```tsx
+function ProductDetail({ productId }: { productId: string }) {
+  const [product, setProduct] = useState<Product | null>(null);
+  useEffect(() => {
+    productService.getById(productId).then(setProduct);
+  }, []);
+  return product ? <ProductView product={product} /> : <Spinner />;
+}
+```
+
+**A.**
+
+```tsx
+function ProductDetail({ productId }: { productId: string }) {
+  const [product, setProduct] = useState<Product | null>(null);
+  useEffect(() => {
+    let isCurrent = true;
+    setProduct(null);
+    productService.getById(productId).then((data) => {
+      if (isCurrent) setProduct(data);
+    });
+    return () => { isCurrent = false; };
+  }, [productId]);
+  return product ? <ProductView product={product} /> : <Spinner />;
+}
+```
+
+Key points an interviewer looks for: `productId` added to the dependency array (the actual bug), and an `isCurrent` flag set to `false` in the cleanup function so that if the user switches products again before the first request resolves, that stale response is discarded instead of overwriting the newer product's data.
+
+### Q5. What is the Optimistic UI Pattern, and what's the real tradeoff it makes?
+
+**A.** It updates the UI immediately as if an action already succeeded — before the server has actually confirmed it — then rolls back only if the server rejects it. The tradeoff is: on the common case (the action succeeds, which is the overwhelming majority of the time for things like likes or cancellations), the app feels instantaneous; on the rare failure case, the user briefly sees a false success that then reverses, which is a worse experience than a normal loading state would have been for that one case. It's a bet that the speed gained on the common path outweighs the confusion cost on the rare path.
+
+### Q6. In a React Query optimistic mutation, what are `onMutate`, `onError`, and `onSettled` each responsible for?
+
+**A.** `onMutate` runs before the request is sent — it should cancel any in-flight queries for that key (to prevent a race with the optimistic update), snapshot the current cached data (for rollback), and then apply the optimistic change to the cache. `onError` runs if the mutation fails — it restores the snapshot taken in `onMutate`, undoing the optimistic change. `onSettled` runs regardless of success or failure — typically it invalidates the query so the cache is refetched and guaranteed to reflect the server's actual current state, correcting any subtle drift the optimistic update introduced.
+
+### Q7. Why is "liking a post" a good real-world fit for Optimistic UI, but "submitting a payment" is not?
+
+**A.** A like almost always succeeds, is low-stakes if it briefly shows the wrong state, and is trivial to visually undo (un-fill the heart icon) — ideal conditions for optimism. A payment can genuinely fail for many real reasons (declined card, insufficient funds), carries real financial stakes, and showing "Payment successful" optimistically before reversing it would be actively misleading and alarming — exactly the pattern's own "when not to use" case.
+
+### Q8. What's the difference between the Pagination Pattern and the Infinite Scroll Pattern, and how do you decide which one a feature needs?
+
+**A.** Both solve the same underlying problem — fetching a large dataset in bounded chunks instead of all at once — but they serve different interaction models. Pagination (numbered pages, `queryKey: ['orders', page]`) fits data users need to navigate precisely within ("go to page 12," "that record was on page 3") and need a sense of total scope for. Infinite Scroll (`useInfiniteQuery`, appending pages as the user scrolls) fits feed-like content users browse forward through continuously without caring about a specific position — activity logs, social feeds. The deciding question is: does the user need to jump to or return to a specific position? If yes, Pagination; if the content is meant to be endlessly browsed, Infinite Scroll.
+
+### Q9. Coding question: why does including `page` inside `queryKey: ['orders', page]` matter for a paginated table's performance?
+
+**A.** React Query caches results per unique `queryKey`, so `['orders', 1]` and `['orders', 2]` are cached as two separate entries. Navigating from page 2 back to page 1 hits the cache instantly (no network request, no loading spinner) instead of refetching data that was already fetched moments ago. If `page` were left out of the key, every page would collide on the same cache entry, and switching pages would either serve wrong cached data or force a refetch every time — losing per-page caching entirely.
+
+### Q10. A dashboard has an Orders table (admin needs to jump to specific orders) and a "Recent Activity" feed (a live log nobody navigates precisely within). Which pattern fits each, and why would swapping them be a mistake?
+
+**A.** The Orders table should use Pagination — admins reference specific orders and benefit from knowing total scope ("143 orders across 6 pages"), which numbered pages provide and infinite scroll doesn't. The Activity feed should use Infinite Scroll — it's browsed forward continuously with no need to jump to "page 4 of activity." Swapping them would make the Orders table frustrating (no way to jump to a specific page, and reaching page footer/summary content becomes awkward as noted in this pattern's "when not to use"), and would make the Activity feed feel clunky (an admin monitoring a live log doesn't think in terms of page numbers, they just want to keep scrolling).
+
+---
+
+<!-- Add Day 8 questions below as you complete Day 8 -->
