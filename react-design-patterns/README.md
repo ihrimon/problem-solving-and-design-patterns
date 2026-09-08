@@ -61,19 +61,23 @@
 
 📖 Deep dive → [Day 7: Server State & Data Fetching Patterns](day-07-server-state-and-data-fetching-patterns/README.md)
 
-### Day 8: Performance Patterns
+### Day 8: Performance Patterns ✅
 
-- [ ] Lazy Loading Pattern
-- [ ] Code-Splitting Pattern
-- [ ] Suspense Pattern
-- [ ] Virtualization Pattern
+- [x] Lazy Loading Pattern
+- [x] Code-Splitting Pattern
+- [x] Suspense Pattern
+- [x] Virtualization Pattern
 
-### Day 9: Reliability Patterns
+📖 Deep dive → [Day 8: Performance Patterns](day-08-performance-patterns/README.md)
 
-- [ ] Error Boundary Pattern
-- [ ] Retry Pattern
-- [ ] Fallback UI Pattern
-- [ ] Portal Pattern
+### Day 9: Reliability Patterns ✅
+
+- [x] Error Boundary Pattern
+- [x] Retry Pattern
+- [x] Fallback UI Pattern
+- [x] Portal Pattern
+
+📖 Deep dive → [Day 9: Reliability Patterns](day-09-reliability-patterns/README.md)
 
 ### Day 10: Classic Software Design Patterns
 

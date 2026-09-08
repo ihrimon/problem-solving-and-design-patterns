@@ -603,4 +603,170 @@ Key points an interviewer looks for: `productId` added to the dependency array (
 
 ---
 
-<!-- Add Day 8 questions below as you complete Day 8 -->
+## Day 8 — Performance Patterns
+
+### Q1. What is the Lazy Loading Pattern, and why does a normal top-of-file `import` defeat it?
+
+**A.** Lazy Loading defers downloading a component's JavaScript until the moment it's actually needed at runtime, using `React.lazy(() => import('./X'))` instead of a static `import X from './X'`. A static import is resolved at build time and bundled unconditionally — even a component that only renders behind an `if (showModal)` check still has its code downloaded on every page load if it's imported normally, because the bundler can't know at build time that the runtime condition will often be false.
+
+### Q2. Why does `React.lazy` require a `Suspense` boundary around it — what breaks without one?
+
+**A.** `React.lazy` returns a component whose actual code isn't available yet at the moment React first tries to render it — the import is a `Promise` still in flight. React needs a way to render *something* while waiting, and `Suspense`'s `fallback` prop is exactly that — without wrapping a lazy component in `<Suspense>`, React throws because it has no fallback UI to show during the gap between "render requested" and "code loaded."
+
+### Q3. What is the Code-Splitting Pattern, and how is it different from Lazy Loading — or is it the same thing?
+
+**A.** They use the same underlying mechanism (`React.lazy` + dynamic `import()`), but at different scope and intent. Lazy Loading typically refers to deferring one specific, conditionally-rendered piece (a modal, a rarely-used panel). Code-Splitting refers to systematically applying that same technique across an app's structure — most commonly per route — so that visiting `/orders` only downloads the Orders page's chunk, not the Products or Users pages' code too. Code-Splitting is really Lazy Loading applied as an architectural default rather than a one-off optimization.
+
+### Q4. Coding question: convert this eagerly-imported router into one that code-splits by route.
+
+```tsx
+import OrdersPage from './pages/OrdersPage';
+import ProductsPage from './pages/ProductsPage';
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/orders" element={<OrdersPage />} />
+      <Route path="/products" element={<ProductsPage />} />
+    </Routes>
+  );
+}
+```
+
+**A.**
+
+```tsx
+import { lazy, Suspense } from 'react';
+
+const OrdersPage = lazy(() => import('./pages/OrdersPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+
+function App() {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <Routes>
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/products" element={<ProductsPage />} />
+      </Routes>
+    </Suspense>
+  );
+}
+```
+
+Key points an interviewer looks for: both imports converted to `lazy(() => import(...))`, and the whole `<Routes>` block wrapped in a single `Suspense` boundary (required for the lazy components to render at all).
+
+### Q5. What is the Suspense Pattern, and what real coordination problem does it solve beyond "showing a spinner"?
+
+**A.** Without Suspense, rendering several independently-loading pieces (two lazy-loaded components, or several Suspense-integrated data fetches) on one screen would require manually tracking multiple separate `isLoading` booleans and combining them by hand to decide when to stop showing a loading state. A `<Suspense>` boundary declaratively shows its `fallback` until *everything* inside it — regardless of how many independent async dependencies exist — has finished, with zero manual `isLoading` bookkeeping.
+
+### Q6. What's the effect of nesting two `Suspense` boundaries instead of using one shared boundary around both components?
+
+```tsx
+<Suspense fallback={<PageSkeleton />}>
+  <Header />
+  <Suspense fallback={<ChartSkeleton />}>
+    <RevenueChart />
+  </Suspense>
+  <RecentActivity />
+</Suspense>
+```
+
+**A.** With nested boundaries, `Header` and `RecentActivity` can appear as soon as they're individually ready, and only `RevenueChart` (wrapped in its own inner boundary) shows its own `ChartSkeleton` while it specifically loads — a slow chart doesn't block the rest of the page. If everything shared one single outer boundary instead, the entire page would stay behind `PageSkeleton` until the slowest single piece (likely the chart) finished, even though `Header` and `RecentActivity` were ready much earlier.
+
+### Q7. How does React Query's `useSuspenseQuery` connect Day 7's Server State Pattern to today's Suspense Pattern?
+
+**A.** `useSuspenseQuery` makes a data-fetching hook integrate with the same `<Suspense>` mechanism originally built for lazy-loaded code — instead of a component checking `isLoading` and conditionally rendering a spinner itself, it "suspends" (throws a promise React catches) while the query is in flight, and the nearest `<Suspense>` boundary's `fallback` handles showing a loading state automatically. This means the exact same `<Suspense>` boundary already in place for a lazy-loaded route can also coordinate that route's data fetching, with one unified fallback mechanism instead of two separate loading concepts.
+
+### Q8. What is the Virtualization Pattern, and why doesn't Day 7's Pagination Pattern make it unnecessary?
+
+**A.** Virtualization renders only the currently-visible rows of a large list (plus a small buffer), recycling a small, constant number of DOM nodes as the user scrolls, rather than creating one DOM node per data item. Pagination limits how much data is *fetched and held* at once (e.g., 25 orders per page) but doesn't, by itself, solve a scenario where a single continuous, scrollable list still needs to show hundreds or thousands of already-loaded rows at once (a bulk-edit spreadsheet view, a long chat history) — that's specifically what Virtualization addresses, at the DOM-node level rather than the network-fetch level.
+
+### Q9. Coding question: in a `useVirtualizer`-based list, why does the inner content wrapper need `height: virtualizer.getTotalSize()` if only ~25 rows are ever actually rendered?
+
+**A.** The scrollable container needs a scrollbar that accurately reflects the *full* logical size of all items (e.g., 10,000 rows × 48px each), even though only a handful of those rows have real DOM nodes at any moment. Setting the inner wrapper's height to `getTotalSize()` reserves that correct total scrollable space, while each visible row is absolutely positioned via `transform: translateY(...)` at its correct offset within that space — giving native, correctly-proportioned scrolling behavior despite the DOM only containing a small fraction of the total items.
+
+### Q10. When would adding virtualization to an already-paginated table be a bad idea?
+
+**A.** If a table already shows a small, bounded page size (20-50 rows), there's no DOM-node-count problem left for virtualization to solve — the list is already small. Adding it anyway introduces real downsides for no gain: virtualized lists break the browser's native find-in-page (Ctrl+F) since off-screen rows don't exist in the DOM to be found, and they complicate handling variable-height content. Virtualization and Pagination address overlapping performance concerns from different angles, and a well-paginated table usually doesn't need both.
+
+---
+
+## Day 9 — Reliability Patterns
+
+### Q1. What is the Error Boundary Pattern, and why does a bug in one small widget crash an entire React app without it?
+
+**A.** React unmounts the whole component tree on an uncaught error thrown during render, regardless of how small or isolated the component that threw actually is — a `TypeError` inside one `OrderSummaryCard` takes down the header, sidebar, and every unrelated widget along with it. An Error Boundary is a component that catches render errors in its child tree (via `getDerivedStateFromError`/`componentDidCatch`) and renders a fallback instead, containing the crash to just the section it wraps.
+
+### Q2. Why must `componentDidCatch` be a class component method — can't you write an Error Boundary as a function component with hooks?
+
+**A.** As of React's current stable APIs, `getDerivedStateFromError` and `componentDidCatch` only exist on class components — there is no hook equivalent for catching render errors in children. This is one of the few remaining cases in modern React where a class component is still required; teams typically write one small, reusable `ErrorBoundary` class component once and never touch class syntax anywhere else in the codebase.
+
+### Q3. Coding question: why is `componentDidCatch` used to call `logErrorToService(error, info)` rather than just relying on `getDerivedStateFromError` to show the fallback?
+
+```tsx
+static getDerivedStateFromError() {
+  return { hasError: true };
+}
+componentDidCatch(error: Error, info: React.ErrorInfo) {
+  logErrorToService(error, info);
+}
+```
+
+**A.** `getDerivedStateFromError` runs during the render phase and must be a pure function with no side effects (it only returns new state) — React may call it multiple times and can't guarantee side effects inside it run correctly. `componentDidCatch` runs during the commit phase specifically to hold side effects like logging, so this is where error reporting (e.g., to Sentry) belongs. Skipping this and only setting `hasError` would silently swallow every caught error with no record of it ever happening.
+
+### Q4. What is the Retry Pattern, and why is exponential backoff used instead of retrying immediately?
+
+**A.** It automatically re-attempts a failed request a bounded number of times before surfacing an error, on the reasoning that many failures (a dropped Wi-Fi packet, a momentary server hiccup) are transient and would succeed if tried again shortly after. Exponential backoff (doubling the delay between attempts — 200ms, 400ms, 800ms) is used instead of instant, rapid retries because hammering a server that's already struggling (briefly overloaded, rate-limiting) with immediate repeated requests makes the underlying problem worse, not better.
+
+### Q5. Coding question: why should this retry function distinguish between error types instead of retrying every failure the same way?
+
+```tsx
+async function fetchWithRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === maxAttempts) throw error;
+      await new Promise((r) => setTimeout(r, 2 ** attempt * 100));
+    }
+  }
+  throw new Error('unreachable');
+}
+```
+
+**A.** A 4xx error (invalid input, bad auth token) will fail identically no matter how many times it's retried — retrying it three times with backoff just delays showing the user the real, actionable error by over a second for no benefit. A 5xx error or network failure, by contrast, is plausibly transient and worth retrying. Production code should add a `shouldRetry(error)` check that skips straight to throwing for 4xx-class errors and only applies the retry loop to 5xx/network failures.
+
+### Q6. Which popular data-fetching libraries build the Retry Pattern in by default, and why is that the right default?
+
+**A.** React Query and SWR both retry failed queries with exponential backoff automatically, without any extra configuration. This is the right default because momentary network blips are extremely common in real-world conditions (mobile networks, Wi-Fi handoffs, brief server hiccups), so silently retrying before ever bothering the user with an error is what a well-behaved app should do in the common case — the developer has to explicitly opt out (or configure `shouldRetry`) rather than opt in.
+
+### Q7. What is the Fallback UI Pattern, and how is it different from just showing a spinner or a generic "Something went wrong" message?
+
+**A.** It means designing a distinct, purposeful UI for every failure/empty state a component can actually reach, rather than one generic catch-all. A product page that's out of results (404) should show "this product doesn't exist" with a link back to the product list; a page that failed to load due to a network error should show "couldn't load this" with an actual retry button. Collapsing both into one generic error message forces the user to guess what happened and what to do next, when the component itself already knows exactly which case occurred.
+
+### Q8. Coding question: this component only handles loading and success — what's missing, and why does it matter?
+
+```tsx
+function ProductDetail({ productId }: { productId: string }) {
+  const { data: product, isLoading } = useQuery({
+    queryKey: ['product', productId],
+    queryFn: () => productService.getById(productId),
+  });
+  if (isLoading) return <Spinner />;
+  return <ProductView product={product} />;
+}
+```
+
+**A.** It has no handling for the query's `error` state at all — if the fetch fails, `product` stays `undefined` and `<ProductView product={undefined} />` either crashes (caught only if wrapped in an Error Boundary) or silently renders broken UI. A complete version checks `error`, and ideally distinguishes a 404 (show an empty state with navigation back) from any other failure (show a retry button) — exactly the three-state pattern (loading/error/success, with error itself often split further) that Fallback UI describes.
+
+### Q9. What is the Portal Pattern, and what specific CSS problem does it solve that a `z-index` change alone can't?
+
+**A.** A `Modal` rendered from deep inside a scrollable table (`OrderTable` → `OrderTableRow` → `OrderActionsMenu`) inherits ancestor CSS constraints like `overflow: hidden`, which physically clips the modal at the table's boundary — no `z-index` value, however high, can make content escape being clipped by an ancestor's `overflow: hidden`, because clipping and stacking order are different CSS mechanisms. `createPortal` solves this by rendering the modal's actual DOM nodes into a completely different location in the document (typically directly under `<body>`), bypassing the ancestor's `overflow` and stacking context entirely.
+
+### Q10. If a Portal renders its content into a totally different DOM location, how does a click inside the portal still trigger an `onClick` handler defined on a component higher up in the React tree?
+
+**A.** React's synthetic event system dispatches events based on the **component tree**, not the actual DOM tree — so even though `createPortal`'s output physically lives under `#modal-root` next to `<body>`, React still treats it as a child of the component that rendered it for the purposes of event bubbling. This is exactly why the practice of building `Dialog`/`Popover`/`Tooltip` components on `createPortal` (as Radix UI and shadcn/ui do) doesn't break click-outside handlers or other bubbling-based logic — from React's perspective, nothing about the component hierarchy changed, only where the DOM nodes physically render.
+
+---
+
+<!-- Add Day 10 questions below as you complete Day 10 -->
