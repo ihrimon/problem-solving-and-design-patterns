@@ -79,11 +79,13 @@
 
 📖 Deep dive → [Day 9: Reliability Patterns](day-09-reliability-patterns/README.md)
 
-### Day 10: Classic Software Design Patterns
+### Day 10: Classic Software Design Patterns ✅
 
-- [ ] Strategy Pattern
-- [ ] Factory Pattern
-- [ ] Observer Pattern
-- [ ] Pub/Sub Pattern
-- [ ] Singleton Pattern
-- [ ] Proxy Pattern
+- [x] Strategy Pattern
+- [x] Factory Pattern
+- [x] Observer Pattern
+- [x] Pub/Sub Pattern
+- [x] Singleton Pattern
+- [x] Proxy Pattern
+
+📖 Deep dive → [Day 10: Classic Software Design Patterns](day-10-classic-software-design-patterns/README.md)

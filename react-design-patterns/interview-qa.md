@@ -769,4 +769,91 @@ function ProductDetail({ productId }: { productId: string }) {
 
 ---
 
-<!-- Add Day 10 questions below as you complete Day 10 -->
+## Day 10 — Classic Software Design Patterns
+
+### Q1. What is the Strategy Pattern, and what problem does a growing `if/else` chain create that it solves?
+
+**A.** Strategy extracts each variant of an algorithm/behavior (e.g., standard vs. express vs. free shipping cost calculation) into its own interchangeable function or object, selected at runtime based on some condition, instead of one function with a growing `if/else if/else` chain. The problem it solves: every new variant added to a single monolithic function risks breaking the variants that already worked, since they all share one function body. With Strategy, adding a new variant means writing one new function and one line to select it — every existing strategy stays completely untouched.
+
+### Q2. Coding question: refactor this shipping calculation into the Strategy Pattern.
+
+```tsx
+function calculateShipping(order: Order): number {
+  if (order.shippingMethod === 'standard') return 5.99;
+  else if (order.shippingMethod === 'express') return 12.99 + order.weightKg * 0.5;
+  else if (order.total > 100) return 0;
+  return 5.99;
+}
+```
+
+**A.**
+
+```tsx
+type ShippingStrategy = (order: Order) => number;
+
+const standardShipping: ShippingStrategy = () => 5.99;
+const expressShipping: ShippingStrategy = (order) => 12.99 + order.weightKg * 0.5;
+const freeShipping: ShippingStrategy = () => 0;
+
+function getShippingStrategy(order: Order): ShippingStrategy {
+  if (order.total > 100) return freeShipping;
+  if (order.shippingMethod === 'express') return expressShipping;
+  return standardShipping;
+}
+
+function calculateShipping(order: Order): number {
+  return getShippingStrategy(order)(order);
+}
+```
+
+Key points an interviewer looks for: each shipping rule becomes its own standalone function matching a shared `ShippingStrategy` type, and a separate selector function (`getShippingStrategy`) decides which one applies — the calling code (`calculateShipping`) no longer contains any of the actual pricing logic itself.
+
+### Q3. What is the Factory Pattern, and how is it different from just calling `new SomeClass()` directly wherever an object is needed?
+
+**A.** A Factory centralizes object creation behind one function that decides which concrete type to construct, so calling code depends only on the factory and a shared interface — never on concrete class names. Calling `new EmailNotification(...)` and `new SMSNotification(...)` directly at every call site means every one of those call sites needs to know the exact class names and constructor shapes; adding a new notification type or changing a constructor means hunting down and editing every call site instead of one factory function.
+
+### Q4. What's a real, everyday example of the Factory Pattern outside of application code, and why does it count as a Factory?
+
+**A.** `document.createElement(tagName)` in the browser's own DOM API — passing `'button'` versus `'input'` returns different concrete element types (`HTMLButtonElement`, `HTMLInputElement`), decided internally based on the input, without the caller ever writing `new HTMLButtonElement()` directly. That's the defining trait of a Factory: one function, multiple possible concrete outputs, chosen by the function rather than the caller.
+
+### Q5. What is the Observer Pattern, and how does it avoid tightly coupling a subject to its consumers?
+
+**A.** A subject (like a shopping cart) maintains a list of subscriber functions and calls all of them whenever it changes, rather than directly calling named functions like `updateHeaderBadge()` or `updateCartDrawer()` by hand. This means the subject never needs to know who its consumers are or how many exist — a new consumer (a "free shipping progress bar") just calls `subscribe(...)` on its own, with zero changes required inside the subject's own code.
+
+### Q6. Where does the Observer Pattern already exist inside tools you likely use every day in a React app?
+
+**A.** It's the exact mechanism underneath React's own `useState`/`useSyncExternalStore`, Redux's `store.subscribe()`, and RxJS Observables — in every case, a piece of shared state maintains a list of subscriber callbacks and notifies all of them on change, without the state needing a hardcoded, fixed list of consumers baked into its own implementation.
+
+### Q7. What is the Pub/Sub Pattern, and how is it different from the Observer Pattern if both involve "subscribing" to something?
+
+**A.** In Observer, a subscriber holds a direct reference to the subject it's subscribing to (`cart.subscribe(...)` requires having the `cart` object). In Pub/Sub, publishers and subscribers never reference each other directly — they only interact through a shared, decoupled event bus, communicating via an agreed-upon event name (e.g., `'order:cancelled'`). This matters when the publisher and subscriber genuinely shouldn't know about each other architecturally — an inventory-restocking module reacting to `'order:cancelled'` has zero reason to import anything from the order-cancellation feature itself.
+
+### Q8. Coding question: using the `EventBus` pattern below, why does `eventBus.emit('order:cancelled', {...})` never need to know that an inventory module and an analytics module are both listening?
+
+```tsx
+export const eventBus = new EventBus();
+eventBus.emit('order:cancelled', { orderId: order.id });
+// elsewhere, unrelated files:
+eventBus.on('order:cancelled', ({ orderId }) => restockInventoryFor(orderId));
+eventBus.on('order:cancelled', ({ orderId }) => trackEvent('order_cancelled', { orderId }));
+```
+
+**A.** `emit` only loops over whatever handlers happen to be registered for that event name at call time (`this.handlers[event]?.forEach(...)`) — it has no static knowledge of how many listeners exist or what they do. The order-cancellation code that calls `emit` never imports the inventory or analytics modules, and those modules never import the order-cancellation code either; the only shared dependency across all three is the `eventBus` object itself and an agreed-upon string, `'order:cancelled'`.
+
+### Q9. What is the Singleton Pattern, and why is a plain JavaScript module export usually preferred over a class with a `getInstance()` method in modern codebases?
+
+**A.** Singleton guarantees exactly one instance of something exists for the app's whole lifetime — one shared `ApiClient`, one shared store. A classic class-based Singleton (`private constructor` + `static getInstance()`) achieves this, but JavaScript's own module system already provides the same guarantee for free: a `const apiClient = {...}` exported from a file is a single object reference, and every file that imports it gets that exact same reference — no `getInstance()` ceremony needed. This is precisely what Day 5's `restOrderRepository` and `FetchApiClient` module exports already were: singletons, just without the class syntax.
+
+### Q10. What is the Proxy Pattern, and what's a concrete example of adding caching to a service without modifying the service's own code?
+
+**A.** A Proxy wraps a real object and intercepts calls to it (via JavaScript's native `Proxy` and its `get`/`set` traps), adding behavior like caching, logging, or access control around the real implementation. For example, `new Proxy(productService, { get(target, prop) { if (prop === 'getById') return async (id) => { /* check cache, else call target.getById(id) and store it */ }; return target[prop]; } })` adds caching specifically to `getById` while every other method (like `list()`) passes through untouched — and `productService` itself was never edited. Vue 3's entire reactivity system is built on exactly this native `Proxy` mechanism, intercepting property reads and writes on plain data objects.
+
+### Q11. How do Singleton and Dependency Injection (Day 5) relate, and when does relying on a classic Singleton become a liability?
+
+**A.** Day 5's Dependency Injection Pattern already relies on something being a singleton — `restOrderRepository` is one shared instance supplied through a `ServiceProvider`. The difference is *how* that singleton guarantee is achieved and *how swappable* it is: DI supplies the shared instance from outside (via a provider), so tests can substitute `createInMemoryOrderRepository()` instead. A classic class-based Singleton with a hardcoded `getInstance()` call baked directly into consuming code is much harder to swap in a test, because the consuming code itself decides which instance it gets rather than receiving it from outside — which is why most modern codebases favor DI-supplied module-level singletons over the classic Singleton class pattern.
+
+### Q12. Looking back across all 10 days, what's the throughline connecting Day 10's "classic" patterns to the React-specific patterns from Days 1–9?
+
+**A.** Nearly every React-specific pattern in this checklist turns out to be one of Day 10's six ideas expressed in React's vocabulary: the Provider Pattern (Day 2) and Dependency Injection (Day 5) are Singleton-scoped shared state delivered via Context; a custom hook composing several lower-level hooks (Day 3) mirrors Factory-style construction; React's own re-render mechanism and Redux's store are Observer under the hood; an event bus for cross-feature communication is Pub/Sub; and a caching layer wrapped around a service (Day 5's Repository, or a `Proxy`-based cache) is the Proxy Pattern. Classic software design patterns predate React by decades — what changed is the vocabulary and the syntax, not the underlying problems being solved.
+
+<!-- End of the 10-day checklist -->
